@@ -162,4 +162,7 @@ int thread_get_load_avg(void);
 
 struct thread *thread_exists(tid_t tid);
 
+// priority scheduling
+bool sort_priority (const struct list_elem *a, const struct list_elem *b, void *aux);
+
 #endif /* threads/thread.h */
