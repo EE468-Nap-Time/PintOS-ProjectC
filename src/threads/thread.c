@@ -211,6 +211,11 @@ tid_t thread_create(const char *name, int priority,
   /* Add to run queue. */
   thread_unblock(t);
 
+  // When a thread is added to the ready list that has a higher priority than the currently running thread, 
+  // the current thread should immediately yield the processor to the new thread.
+  if(t->priority > thread_current()->priority)
+    thread_yield();
+
   return tid;
 }
 
