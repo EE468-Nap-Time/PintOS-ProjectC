@@ -109,15 +109,27 @@ void
 sema_up (struct semaphore *sema) 
 {
   enum intr_level old_level;
+  struct thread *waiting_td = NULL;
 
   ASSERT (sema != NULL);
 
   old_level = intr_disable ();
-  if (!list_empty (&sema->waiters)) 
-    thread_unblock (list_entry (list_pop_front (&sema->waiters),
-                                struct thread, elem));
+  if (!list_empty (&sema->waiters)) {
+    // Reorder list of waiting threads in semaphore. Highest priority first.
+    list_sort(&sema->waiters, sort_priority, NULL);
+
+    waiting_td = list_entry(list_pop_front (&sema->waiters), struct thread, elem);
+
+    thread_unblock(waiting_td);
+  }
   sema->value++;
   intr_set_level (old_level);
+
+  if(waiting_td == NULL)
+    return;
+
+  if(waiting_td->priority > thread_current()->priority)
+    thread_yield();
 }
 
 static void sema_test_helper (void *sema_);
@@ -316,9 +328,25 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   ASSERT (!intr_context ());
   ASSERT (lock_held_by_current_thread (lock));
 
-  if (!list_empty (&cond->waiters)) 
-    sema_up (&list_entry (list_pop_front (&cond->waiters),
-                          struct semaphore_elem, elem)->semaphore);
+  if (!list_empty (&cond->waiters)) {
+    // Reorder list of waiting threads in condition variable. Highest priority first.
+    list_sort(&cond->waiters, sort_cond_priority, NULL);
+    sema_up (&list_entry (list_pop_front (&cond->waiters), struct semaphore_elem, elem)->semaphore);
+  }
+}
+
+bool sort_cond_priority (const struct list_elem *a, const struct list_elem *b, void *aux)
+{
+  struct semaphore_elem *sem1 = list_entry(a, struct semaphore_elem, elem);
+  struct semaphore_elem *sem2 = list_entry(b, struct semaphore_elem, elem);
+
+  struct thread *td1 = list_entry(list_front(&sem1->semaphore.waiters), struct thread, elem);
+  struct thread *td2 = list_entry(list_front(&sem2->semaphore.waiters), struct thread, elem);
+
+  if(td1->priority > td2->priority)
+    return true;
+
+  return false;
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by
