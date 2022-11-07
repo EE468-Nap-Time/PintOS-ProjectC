@@ -57,6 +57,7 @@ static long long user_ticks;   /* # of timer ticks in user programs. */
 /* Scheduling. */
 #define TIME_SLICE 4          /* # of timer ticks to give each thread. */
 static unsigned thread_ticks; /* # of timer ticks since last yield. */
+static fp_t load_avg;
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -102,6 +103,8 @@ void thread_init(void)
   init_thread(initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid();
+
+  load_avg = 0; // Set load avg to 0 at system boot
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -388,30 +391,48 @@ int thread_get_priority(void)
 }
 
 /* Sets the current thread's nice value to NICE. */
-void thread_set_nice(int nice UNUSED)
+void thread_set_nice(int nice)
 {
-  /* Not yet implemented. */
+  ASSERT(nice >= NICE_MIN && nice <= NICE_MAX);
+  struct thread *td = thread_current();
+
+  td->nice = nice;
+
+  set_advanced_priority(td, NULL);
+
+  if(td == idle_thread)
+    return;
+
+  if(td->status == THREAD_READY)
+  {
+    enum intr_level old_level = intr_disable();
+    list_remove(&td->elem);
+    list_insert_ordered(&ready_list, &td->elem, sort_priority, NULL);
+    intr_set_level(old_level);
+  } else if(td->status == THREAD_RUNNING)
+  {
+    struct thread *td2 = list_entry(list_begin(&ready_list), struct thread, elem);
+    if(td2->priority > td->priority)
+      thread_yield();
+  }
 }
 
 /* Returns the current thread's nice value. */
 int thread_get_nice(void)
 {
-  /* Not yet implemented. */
-  return 0;
+  return thread_current()->nice;
 }
 
-/* Returns 100 times the system load average. */
+/* Returns 100 times the system load average, rounded to the nearest integer */
 int thread_get_load_avg(void)
 {
-  /* Not yet implemented. */
-  return 0;
+  return FP_TO_INT_NEAR(FP_INT_MUL(load_avg, 100));
 }
 
-/* Returns 100 times the current thread's recent_cpu value. */
+/* Returns 100 times the current thread's recent_cpu value, rounded to the nearest integer */
 int thread_get_recent_cpu(void)
 {
-  /* Not yet implemented. */
-  return 0;
+  return FP_TO_INT_NEAR(FP_INT_MUL(thread_current()->recent_cpu, 100));
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -509,6 +530,25 @@ init_thread(struct thread *t, const char *name, int priority)
   t->fd = 2;                    // Two lists (child thread and file list)
   t->finish = false;
   t->exit_error = -1;
+
+  if(thread_mlfqs)
+  {
+    // The initial thread starts with a nice value of zero. 
+    // Other threads start with a nice value inherited from their parent thread.
+    
+    // The initial value of recent_cpu is 0 in the first thread created, 
+    // or the parent's value in other new threads
+    if(t == init_thread)
+    {
+      t->nice = NICE_DEFAULT;
+      t->recent_cpu = RECENT_CPU_DEFAULT;
+    } else
+    {
+      t->nice = t->parent->nice;
+      t->recent_cpu = t->parent->recent_cpu;
+    }
+    set_advanced_priority(t, NULL);
+  }
   sema_init(&t->child_lock, 0); // Initialize semaphore for child locks (synchronization)
   list_push_back(&all_list, &t->allelem);
 }
@@ -679,7 +719,15 @@ void thread_wake(int64_t ticks)
   // every thread after it in the list should be still sleeping
 }
 
-bool sort_priority (const struct list_elem *a, const struct list_elem *b, void *aux)
+void sort_ready_list()
+{
+  if(!list_empty(&ready_list))
+  {
+    list_sort(&ready_list, sort_priority, NULL);
+  }
+}
+
+bool sort_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
 {
   struct thread *td1 = list_entry(a, struct thread, elem);
   struct thread *td2 = list_entry(b, struct thread, elem);
@@ -691,7 +739,7 @@ bool sort_priority (const struct list_elem *a, const struct list_elem *b, void *
   return false;
 }
 
-bool sort_sleep(const struct list_elem *a, const struct list_elem *b, void *aux)
+bool sort_sleep(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
 {
   struct thread *td1 = list_entry(a, struct thread, elem);
   struct thread *td2 = list_entry(b, struct thread, elem);
@@ -701,4 +749,42 @@ bool sort_sleep(const struct list_elem *a, const struct list_elem *b, void *aux)
     return true;
 
   return false;
+}
+
+void set_advanced_priority(struct thread *t, void *aux UNUSED)
+{
+  if(t == idle_thread)
+    return;
+
+  // priority = PRI_MAX - (recept_cpu / 4) - (nice * 2)
+  t->priority = PRI_MAX - FP_TO_INT_NEAR(FP_INT_DIV(t->recent_cpu, 4)) - (t->nice * 2);
+
+  if(t->priority > PRI_MAX)
+    t->priority = PRI_MAX;
+  if(t->priority < PRI_MIN)
+    t->priority = PRI_MIN;
+} 
+
+void set_recent_cpu(struct thread *t, void *aux UNUSED)
+{
+  if(t == idle_thread)
+    return;
+
+  // recent_cpu = (2*load_avg)/(2*load_avg + 1) * recent_cpu + nice
+  fp_t coeff = FP_DIV(FP_INT_MUL(load_avg, 2), FP_INT_ADD(FP_INT_MUL(load_avg, 2), 1));
+  t->recent_cpu = FP_INT_ADD(FP_MUL(coeff, t->recent_cpu), t->nice);
+}
+
+void set_load_avg()
+{
+  int ready_threads = list_size(&ready_list);
+  if(thread_current() != idle_thread)
+  {
+    ready_threads++;
+  }
+
+  // load_avg = (59/60)*load_avg + (1/60)*ready_threads
+  fp_t arg1 = FP_MUL(FP_INT_DIV(INT_TO_FP(59), 60), load_avg);
+  fp_t arg2 = FP_INT_MUL(FP_INT_DIV(INT_TO_FP(1), 60), ready_threads);
+  load_avg = FP_ADD(arg1, arg2);
 }
