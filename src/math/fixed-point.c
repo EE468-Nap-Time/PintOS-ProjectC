@@ -10,7 +10,7 @@ fp_t FP_TO_INT_FLOOR(fp_t x)
     return x / F;
 }
 
-fp_t FP_TO_INT_CEIL(fp_t x)
+fp_t FP_TO_INT_NEAR(fp_t x)
 {
     if (x >= 0)
         return (x + F / 2) / F;

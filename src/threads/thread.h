@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include "threads/synch.h"
 #include "threads/malloc.h"
+#include "math/fixed-point.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -121,7 +122,7 @@ struct thread
 
    // Advanced scheduler
    int nice;
-   int recent_cpu;
+   fp_t recent_cpu;
 };
 
 struct child
@@ -180,5 +181,7 @@ bool sort_priority (const struct list_elem *a, const struct list_elem *b, void *
 
 // Advanced priority scheduling
 void set_advanced_priority(struct thread *t);
+void set_recent_cpu(struct thread *t);
+void set_load_avg();
 
 #endif /* threads/thread.h */

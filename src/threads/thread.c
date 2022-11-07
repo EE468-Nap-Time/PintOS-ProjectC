@@ -57,6 +57,7 @@ static long long user_ticks;   /* # of timer ticks in user programs. */
 /* Scheduling. */
 #define TIME_SLICE 4          /* # of timer ticks to give each thread. */
 static unsigned thread_ticks; /* # of timer ticks since last yield. */
+static fp_t load_avg;
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -102,6 +103,8 @@ void thread_init(void)
   init_thread(initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid();
+
+  load_avg = 0; // Set load avg to 0 at system boot
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -401,18 +404,16 @@ int thread_get_nice(void)
   return thread_current()->nice;
 }
 
-/* Returns 100 times the system load average. */
+/* Returns 100 times the system load average, rounded to the nearest integer */
 int thread_get_load_avg(void)
 {
-  /* Not yet implemented. */
-  return 0;
+  return FP_TO_INT_NEAR(FP_INT_MUL(load_avg, 100));;
 }
 
-/* Returns 100 times the current thread's recent_cpu value. */
+/* Returns 100 times the current thread's recent_cpu value, rounded to the nearest integer */
 int thread_get_recent_cpu(void)
 {
-  /* Not yet implemented. */
-  return 0;
+  return FP_TO_INT_NEAR(FP_INT_MUL(thread_current()->recent_cpu, 100));
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -702,4 +703,32 @@ bool sort_sleep(const struct list_elem *a, const struct list_elem *b, void *aux)
     return true;
 
   return false;
+}
+
+void set_advanced_priority(struct thread *t)
+{
+  // priority = PRI_MAX - (recept_cpu / 4) - (nice * 2)
+  t->priority = PRI_MAX - FP_TO_INT_NEAR(FP_INT_DIV(t->recent_cpu, 4)) - (t->nice * 2);
+
+  if(t->priority > PRI_MAX)
+    t->priority = PRI_MAX;
+  if(t->priority < PRI_MIN)
+    t->priority = PRI_MIN;
+} 
+
+void set_recent_cpu(struct thread *t)
+{
+  // recent_cpu = (2*load_avg)/(2*load_avg + 1) * recent_cpu + nice
+  fp_t coeff = FP_DIV(FP_INT_MUL(load_avg, 2), FP_INT_ADD(FP_INT_MUL(load_avg, 2), 1));
+  t->recent_cpu = FP_INT_ADD(FP_MUL(coeff, t->recent_cpu), t->nice);
+}
+
+void set_load_avg()
+{
+  int ready_threads = list_size(&ready_list);
+
+  // load_avg = (59/60)*load_avg + (1/60)*ready_threads
+  fp_t arg1 = FP_MUL(FP_INT_DIV(INT_TO_FP(59), 60), load_avg);
+  fp_t arg2 = FP_MUL(FP_INT_DIV(INT_TO_FP(1), 60), ready_threads);
+  load_avg = FP_ADD(arg1, arg2);
 }

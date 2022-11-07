@@ -12,7 +12,7 @@ typedef int32_t fp_t;
 
 fp_t INT_TO_FP(int n);
 fp_t FP_TO_INT_FLOOR(fp_t x);
-fp_t FP_TO_INT_CEIL(fp_t x);
+fp_t FP_TO_INT_NEAR(fp_t x);
 
 fp_t FP_ADD(fp_t x, fp_t y);
 fp_t FP_SUB(fp_t x, fp_t y);
