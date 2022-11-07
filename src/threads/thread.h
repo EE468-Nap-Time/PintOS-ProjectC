@@ -121,6 +121,7 @@ struct thread
 
    // Advanced scheduler
    int nice;
+   int recent_cpu;
 };
 
 struct child
@@ -176,5 +177,8 @@ bool sort_sleep(const struct list_elem *a, const struct list_elem *b, void *aux)
 
 // priority scheduling
 bool sort_priority (const struct list_elem *a, const struct list_elem *b, void *aux);
+
+// Advanced priority scheduling
+void set_advanced_priority(struct thread *t);
 
 #endif /* threads/thread.h */
