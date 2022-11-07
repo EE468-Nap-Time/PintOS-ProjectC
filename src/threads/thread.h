@@ -29,6 +29,7 @@ typedef int tid_t;
 #define NICE_MIN -20
 #define NICE_DEFAULT 0
 #define NICE_MAX 20
+#define RECENT_CPU_DEFAULT 0
 
 /* A kernel thread or user process.
 
@@ -177,11 +178,12 @@ void thread_wake(int64_t ticks);
 bool sort_sleep(const struct list_elem *a, const struct list_elem *b, void *aux);
 
 // priority scheduling
+void sort_ready_list(void);
 bool sort_priority (const struct list_elem *a, const struct list_elem *b, void *aux);
 
 // Advanced priority scheduling
-void set_advanced_priority(struct thread *t);
-void set_recent_cpu(struct thread *t);
-void set_load_avg();
+void set_advanced_priority(struct thread *t, void *aux);
+void set_recent_cpu(struct thread *t, void *aux);
+void set_load_avg(void);
 
 #endif /* threads/thread.h */
