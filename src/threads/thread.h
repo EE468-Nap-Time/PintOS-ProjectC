@@ -94,6 +94,7 @@ struct thread
    struct list_elem allelem;  /* List element for all threads list. */
    bool finish;
    int exit_error;
+   int64_t sleep_ticks;       // Sleeping thread tick length
 
    /* Shared between thread.c and synch.c. */
    struct list_elem elem; /* List element. */
@@ -161,6 +162,11 @@ int thread_get_recent_cpu(void);
 int thread_get_load_avg(void);
 
 struct thread *thread_exists(tid_t tid);
+
+// Clock
+void thread_sleep(int64_t start, int64_t ticks);
+void thread_wake(int64_t ticks);
+bool sort_sleep(const struct list_elem *a, const struct list_elem *b, void *aux);
 
 // priority scheduling
 bool sort_priority (const struct list_elem *a, const struct list_elem *b, void *aux);

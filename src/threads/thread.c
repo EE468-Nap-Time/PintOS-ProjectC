@@ -29,6 +29,9 @@ static struct list ready_list;
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
 
+// Sleep List (list of sleeping threads)
+static struct list sleep_list;
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -92,6 +95,7 @@ void thread_init(void)
   lock_init(&tid_lock);
   list_init(&ready_list);
   list_init(&all_list);
+  list_init(&sleep_list);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread();
@@ -255,17 +259,6 @@ void thread_unblock(struct thread *t)
   list_sort(&ready_list, sort_priority, NULL);
   t->status = THREAD_READY;
   intr_set_level(old_level);
-}
-
-bool sort_priority (const struct list_elem *a, const struct list_elem *b, void *aux)
-{
-  struct thread *td1 = list_entry(a, struct thread, elem);
-  struct thread *td2 = list_entry(b, struct thread, elem);
-
-  if(td1->priority > td2->priority)
-    return true;
-
-  return false;
 }
 
 /* Returns the name of the running thread. */
@@ -650,4 +643,62 @@ struct thread *thread_exists(tid_t tid)
   }
 
   return NULL;
+}
+
+void thread_sleep(int64_t start, int64_t ticks)
+{
+  enum intr_level old_level;
+
+  old_level = intr_disable(); // disable interrupt
+
+  thread_current()->sleep_ticks = start + ticks;
+  list_insert_ordered(&sleep_list, &thread_current()->elem, sort_sleep, NULL);
+  thread_block();
+
+  intr_set_level(old_level); // enable interrupt
+}
+
+void thread_wake(int64_t ticks)
+{
+  // Check if any sleeping threads past its sleep_tick time
+  if(!list_empty(&sleep_list))
+  {
+    struct list_elem *e = list_front(&sleep_list);
+    struct thread *td = list_entry(e, struct thread, elem);
+
+    // found sleeping thread that past its sleeping time
+    if(ticks >= td->sleep_ticks)
+    {
+      list_remove(e);
+      thread_unblock(td);
+      thread_wake(ticks); // Check if there are any more in the sleep_list
+    }
+  }
+  // Note:
+  // Since sleep_list sorted in ascending order, if first one is still sleeping,
+  // every thread after it in the list should be still sleeping
+}
+
+bool sort_priority (const struct list_elem *a, const struct list_elem *b, void *aux)
+{
+  struct thread *td1 = list_entry(a, struct thread, elem);
+  struct thread *td2 = list_entry(b, struct thread, elem);
+
+  // Sort in descending order
+  if(td1->priority > td2->priority)
+    return true;
+
+  return false;
+}
+
+bool sort_sleep(const struct list_elem *a, const struct list_elem *b, void *aux)
+{
+  struct thread *td1 = list_entry(a, struct thread, elem);
+  struct thread *td2 = list_entry(b, struct thread, elem);
+
+  // Sort in ascending order
+  if(td1->sleep_ticks < td2->sleep_ticks)
+    return true;
+
+  return false;
 }
