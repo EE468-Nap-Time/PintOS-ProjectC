@@ -35,7 +35,7 @@ fp_t FP_MUL(fp_t x, fp_t y)
 
 fp_t FP_DIV(fp_t x, fp_t y)
 {
-    return ((int64_t)x) * y / F;
+    return ((int64_t)x) * F / y;
 }
 
 fp_t FP_INT_ADD(fp_t x, int n)

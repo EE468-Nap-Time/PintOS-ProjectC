@@ -192,13 +192,17 @@ timer_interrupt (struct intr_frame *args UNUSED)
     if(timer_ticks() % TIMER_FREQ == 0)
     {
       set_load_avg();
+      enum intr_level old_level = intr_disable();
       thread_foreach(set_recent_cpu, NULL); // Once per second, every thread's recent_cpu is updated
+      intr_set_level(old_level);
     }
 
     // Thread priority recalculated once every fourth clock tick
     if(timer_ticks() % 4 == 0)
     {
+      enum intr_level old_level = intr_disable();
       thread_foreach(set_advanced_priority, NULL);
+      intr_set_level(old_level);
       sort_ready_list();
     }
   }

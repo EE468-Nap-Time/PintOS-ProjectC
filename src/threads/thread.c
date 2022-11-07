@@ -215,14 +215,6 @@ tid_t thread_create(const char *name, int priority,
 
   intr_set_level(old_level);
 
-  if(thread_mlfqs)
-  {
-    set_recent_cpu(t, NULL);
-    set_recent_cpu(thread_current(), NULL);
-    set_advanced_priority(t, NULL);
-    set_advanced_priority(thread_current(), NULL);
-  }
-
   /* Add to run queue. */
   thread_unblock(t);
 
@@ -541,8 +533,21 @@ init_thread(struct thread *t, const char *name, int priority)
 
   if(thread_mlfqs)
   {
-    t->nice = NICE_DEFAULT;
-    t->recent_cpu = RECENT_CPU_DEFAULT;
+    // The initial thread starts with a nice value of zero. 
+    // Other threads start with a nice value inherited from their parent thread.
+    
+    // The initial value of recent_cpu is 0 in the first thread created, 
+    // or the parent's value in other new threads
+    if(t == init_thread)
+    {
+      t->nice = NICE_DEFAULT;
+      t->recent_cpu = RECENT_CPU_DEFAULT;
+    } else
+    {
+      t->nice = t->parent->nice;
+      t->recent_cpu = t->parent->recent_cpu;
+    }
+    set_advanced_priority(t, NULL);
   }
   sema_init(&t->child_lock, 0); // Initialize semaphore for child locks (synchronization)
   list_push_back(&all_list, &t->allelem);
