@@ -259,7 +259,7 @@ void thread_unblock(struct thread *t)
   ASSERT(t->status == THREAD_BLOCKED);
   list_push_back(&ready_list, &t->elem);
   // Reorder ready list. Higher priority first
-  list_sort(&ready_list, sort_priority, NULL);
+  sort_ready_list();
   t->status = THREAD_READY;
   intr_set_level(old_level);
 }
@@ -336,7 +336,7 @@ void thread_yield(void)
   if (cur != idle_thread) {
     list_push_back(&ready_list, &cur->elem);
     // Reorder ready list. Higher priority first
-    list_sort(&ready_list, sort_priority, NULL);
+    sort_ready_list();
   }
   cur->status = THREAD_READY;
   schedule();
@@ -369,7 +369,7 @@ void thread_set_priority(int new_priority)
 
   thread_current()->priority = new_priority;
   // Reorder ready list. Higher priority first
-  list_sort(&ready_list, sort_priority, NULL);
+  sort_ready_list();
 
   old_level = intr_disable(); // disable interrupt
   if(!list_empty(&ready_list))
@@ -399,22 +399,8 @@ void thread_set_nice(int nice)
   td->nice = nice;
 
   set_advanced_priority(td, NULL);
-
-  if(td == idle_thread)
-    return;
-
-  if(td->status == THREAD_READY)
-  {
-    enum intr_level old_level = intr_disable();
-    list_remove(&td->elem);
-    list_insert_ordered(&ready_list, &td->elem, sort_priority, NULL);
-    intr_set_level(old_level);
-  } else if(td->status == THREAD_RUNNING)
-  {
-    struct thread *td2 = list_entry(list_begin(&ready_list), struct thread, elem);
-    if(td2->priority > td->priority)
-      thread_yield();
-  }
+  // Reorder ready list based on new advanced priorities
+  sort_ready_list();
 }
 
 /* Returns the current thread's nice value. */
@@ -548,6 +534,8 @@ init_thread(struct thread *t, const char *name, int priority)
       t->recent_cpu = t->parent->recent_cpu;
     }
     set_advanced_priority(t, NULL);
+    // Reorder ready list based on new advanced priorities
+    sort_ready_list();
   }
   sema_init(&t->child_lock, 0); // Initialize semaphore for child locks (synchronization)
   list_push_back(&all_list, &t->allelem);
