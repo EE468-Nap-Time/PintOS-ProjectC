@@ -124,6 +124,13 @@ struct thread
    // Advanced scheduler
    int nice;
    fp_t recent_cpu;
+
+   // Donations
+   struct list donors_list;            /* list of all potential donors */
+   struct list_elem donor_element;     /* specific donor in list */
+   int original_priority;              /* save the base priority of the thread */
+   struct thread *locker_thread;       /* Thread holding the desired lock of current thread */
+   struct lock *blocking_lock;         /* Lock that the current thread is waiting for */
 };
 
 struct child
