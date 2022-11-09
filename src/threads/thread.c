@@ -367,11 +367,23 @@ void thread_set_priority(int new_priority)
 
   enum intr_level old_level;
 
-  thread_current()->priority = new_priority;
   // Reorder ready list. Higher priority first
   sort_ready_list();
 
-  old_level = intr_disable(); // disable interrupt
+  // disable interrupt 
+  old_level = intr_disable ();
+
+  // if the current donors list for the thread is empty, or if the new priority is greater than the current value
+  if(list_empty(&thread_current()->donors_list) || new_priority > thread_current()->priority)
+  {
+    // set priority to the new priority
+    thread_current()->priority = new_priority; 
+    thread_current()->original_priority = new_priority;
+  }
+  else
+    // only set the base priority
+    thread_current()->original_priority = new_priority;
+
   if(!list_empty(&ready_list))
   {
     // Get first thread in the ready list
@@ -537,6 +549,14 @@ init_thread(struct thread *t, const char *name, int priority)
     // Reorder ready list based on new advanced priorities
     sort_ready_list();
   }
+  else
+  {
+    t->priority = priority;
+  }
+  // initialize original priority and donors list for potential donations
+  t->original_priority = priority;
+  list_init (&t->donors_list);
+
   sema_init(&t->child_lock, 0); // Initialize semaphore for child locks (synchronization)
   list_push_back(&all_list, &t->allelem);
 }

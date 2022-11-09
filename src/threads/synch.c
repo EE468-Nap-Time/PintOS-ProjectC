@@ -201,15 +201,48 @@ lock_init (struct lock *lock)
    interrupt handler.  This function may be called with
    interrupts disabled, but interrupts will be turned back on if
    we need to sleep. */
-void
-lock_acquire (struct lock *lock)
+void lock_acquire (struct lock *lock)
 {
   ASSERT (lock != NULL);
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
+  enum intr_level old_level = intr_disable ();
+
+  // to avoid messing up advanced scheduling
+  if(!thread_mlfqs)
+  {
+    // if there is already a thread holding the lock 
+    if(lock->holder)
+    {
+      // current thread is waiting for thread holding the lock
+      thread_current()->locker_thread = lock->holder;
+
+      // add the current thread's donor element to the other thread's donor list
+      list_push_front(&lock->holder->donors_list, &thread_current()->donor_element);
+
+      // the current thread is being blocked by this lock
+      thread_current()->blocking_lock = lock;
+
+      // traverse through each blocking thread, if the current thread has a higher priority, change the blocking thread's pririty to match
+      struct thread *temp = thread_current();
+      while(temp->locker_thread !=NULL)
+      {
+        if(temp->priority > temp->locker_thread->priority)
+        {
+          temp->locker_thread->priority = temp->priority;
+          temp = temp->locker_thread;
+        }
+      }
+    }
+    // No thread is currently holding the lock
+    else
+      thread_current()->locker_thread = NULL;
+  }
   sema_down (&lock->semaphore);
   lock->holder = thread_current ();
+
+  intr_set_level (old_level);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -218,8 +251,7 @@ lock_acquire (struct lock *lock)
 
    This function will not sleep, so it may be called within an
    interrupt handler. */
-bool
-lock_try_acquire (struct lock *lock)
+bool lock_try_acquire (struct lock *lock)
 {
   bool success;
 
@@ -229,6 +261,26 @@ lock_try_acquire (struct lock *lock)
   success = sema_try_down (&lock->semaphore);
   if (success)
     lock->holder = thread_current ();
+  else
+  {
+    // same process as lock_acquire to change the priority of the threads
+    thread_current()->locker_thread = lock->holder;
+
+    list_push_front(&lock->holder->donors_list,&thread_current()->donor_element);
+
+    thread_current()->blocking_lock = lock;
+
+    struct thread *temp = thread_current();
+
+    while(temp->locker_thread!=NULL)
+    {
+      if(temp->priority > temp->locker_thread->priority)
+      {
+        temp->locker_thread->priority = temp->priority;
+        temp = temp->locker_thread;
+      }
+    }
+  }
   return success;
 }
 
@@ -237,14 +289,64 @@ lock_try_acquire (struct lock *lock)
    An interrupt handler cannot acquire a lock, so it does not
    make sense to try to release a lock within an interrupt
    handler. */
-void
-lock_release (struct lock *lock) 
+void lock_release (struct lock *lock) 
 {
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
   lock->holder = NULL;
   sema_up (&lock->semaphore);
+
+  enum intr_level old_level = intr_disable ();
+
+  // to avoid messing up advanced scheduling
+  if(!thread_mlfqs)
+  {
+    // if the current threads has no donors
+    if(list_empty(&thread_current()->donors_list))
+    {
+      // compare the current thread priority with the original priority
+      thread_set_priority(thread_current()->original_priority);
+    }
+    else
+    {
+      // for each donor in the donor list
+      struct list_elem *e;
+      for (e = list_begin (&thread_current()->donors_list); e != list_end (&thread_current()->donors_list); e = list_next (e))
+      {
+        // if the donor thread was blocked by this specific lock, remove from the list (since we are releasing)
+        struct thread *f = list_entry (e, struct thread, donor_element);
+        if(f->blocking_lock == lock)
+        {
+          list_remove(e);
+          f->blocking_lock = NULL;
+        }
+      }
+
+      // if the donor list is not empty
+      if(!list_empty(&thread_current()->donors_list))
+      {
+        // get the thread in the list with the highest priority and compare to the original priority
+        struct list_elem *max_donor = list_max(&thread_current()->donors_list, sort_priority, NULL);
+        struct thread *max_donor_thread = list_entry(max_donor, struct thread, donor_element);
+
+        if(thread_current()->original_priority > max_donor_thread->priority)
+          thread_set_priority(thread_current()->original_priority);
+        else
+        {
+          thread_current()->priority = max_donor_thread->priority;
+          thread_yield();
+        }
+      }
+      else
+      {
+        // compare the current thread priority with the original priority
+        thread_set_priority(thread_current()->original_priority);
+      }
+    }
+  }
+  
+  intr_set_level (old_level);
 }
 
 /* Returns true if the current thread holds LOCK, false
